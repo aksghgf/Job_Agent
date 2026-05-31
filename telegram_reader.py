@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
-
+from telethon.sessions import StringSession
 load_dotenv()
 
 log = logging.getLogger("TelegramReader")
@@ -19,15 +19,21 @@ IS_CI = os.getenv("CI", "false").lower() == "true"
 
 class TelegramReader:
     def __init__(self, config: dict):
-        self.api_id       = os.getenv("TELEGRAM_API_ID")
-        self.api_hash     = os.getenv("TELEGRAM_API_HASH")
-        self.phone        = os.getenv("TELEGRAM_PHONE")
-        self.groups       = config["group_usernames"]
-        self.session_name = "job_agent_session"
-        self.queue        = asyncio.Queue()
+        self.api_id   = os.getenv("TELEGRAM_API_ID")
+        self.api_hash = os.getenv("TELEGRAM_API_HASH")
+        self.phone    = os.getenv("TELEGRAM_PHONE")
+        self.groups   = config["group_usernames"]
+        self.queue    = asyncio.Queue()
+
+        if IS_CI:
+            # Use string session in CI
+            session = StringSession(os.getenv("TELEGRAM_SESSION"))
+        else:
+            # Use file session locally
+            session = "job_agent_session"
 
         self.client = TelegramClient(
-            self.session_name,
+            session,
             int(self.api_id),
             self.api_hash
         )
@@ -35,7 +41,7 @@ class TelegramReader:
     async def connect(self):
         """Connect and authenticate with Telegram"""
         if IS_CI:
-            # In CI — session file already restored, no phone prompt needed
+            # In CI — StringSession from TELEGRAM_SESSION secret, no phone prompt
             await self.client.connect()
         else:
             await self.client.start(phone=self.phone)
