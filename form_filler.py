@@ -28,10 +28,12 @@ class FormFiller:
         self.answer_cache = {}
         self.job_context  = ""
         self.groq         = GroqClient(groq_config)
+        self.last_error   = ""
 
-    async def apply(self, url: str, job_context: str = "") -> bool:
+    async def apply(self, url: str, job_context: str = "") -> tuple[bool, str]:
         self.answer_cache = {}
         self.job_context  = job_context
+        self.last_error   = ""
         ats = self._detect_ats(url)
         log.info(f"Detected ATS: {ats} for {url}")
 
@@ -55,11 +57,16 @@ class FormFiller:
                     success = await self._fill_ai_guided(page)
 
                 await browser.close()
-                return success
+                if success:
+                    return True, "Submitted successfully"
+                if not self.last_error:
+                    self.last_error = f"Form not completed ({ats} ATS)"
+                return False, self.last_error
 
         except Exception as e:
+            self.last_error = str(e)[:500]
             log.error(f"Form filler error: {e}")
-            return False
+            return False, self.last_error
 
     # ─── Core AI Answer Engine ────────────────────────────────────────────────
 
@@ -274,8 +281,11 @@ Keep it under 250 words. Professional but warm tone. No generic filler phrases."
                         pass
 
             elif action["action"] in ("done", "failed"):
+                if action["action"] == "failed":
+                    self.last_error = action.get("reason", "Automation marked step as failed")
                 return action["action"] == "done"
 
+        self.last_error = f"Hit {max_steps}-step limit without submit confirmation"
         return False
 
     async def _fill_visible_fields(self, page: Page):

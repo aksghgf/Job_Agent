@@ -54,17 +54,32 @@ async def process_message(message, classifier, job_filter, filler, emailer, logg
                         log.info(f"Already applied to {link}, skipping.")
                         continue
 
+                    if "telegram.me" in link or "t.me/" in link:
+                        reason = "Not a job application URL (Telegram channel link)"
+                        print(f"\n⏭️  Skipped link: {reason}")
+                        logger.log(link, message["chat"], "failed", reason)
+                        await reader.notify(
+                            f"❌ Failed to apply\n"
+                            f"🔗 {link}\n"
+                            f"⚠️ {reason}\n"
+                            f"👆 Manual action needed"
+                        )
+                        continue
+
                     print(f"\n📋 Job link found: {link}")
                     print(f"   Source: {message['chat']}")
                     print(f"   Applying automatically...")
 
-                    success = await filler.apply(
+                    success, reason = await filler.apply(
                         url=link,
                         job_context=message["text"]
                     )
                     status = "applied" if success else "failed"
-                    logger.log(link, message["chat"], status)
-                    print(f"   {'✅ Applied!' if success else '❌ Failed (manual needed)'}")
+                    logger.log(link, message["chat"], status, reason if not success else "")
+                    if success:
+                        print(f"   ✅ Applied!")
+                    else:
+                        print(f"   ❌ Failed: {reason}")
 
                     # ── Telegram notification ────────────────────
                     if success:
@@ -78,6 +93,7 @@ async def process_message(message, classifier, job_filter, filler, emailer, logg
                         await reader.notify(
                             f"❌ Failed to apply\n"
                             f"🔗 {link}\n"
+                            f"⚠️ {reason}\n"
                             f"👆 Manual action needed"
                         )
 
