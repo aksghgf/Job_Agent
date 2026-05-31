@@ -35,16 +35,20 @@ class AgentLogger:
         # Only skip if successfully applied or emailed
         return entry["status"] in ("applied", "emailed")
 
-    def log(self, key: str, source: str, status: str):
-        self.data["processed"][key] = {
+    def log(self, key: str, source: str, status: str, reason: str = ""):
+        entry = {
             "source": source,
             "status": status,
             "timestamp": datetime.now().isoformat()
         }
+        if reason:
+            entry["reason"] = reason
+        self.data["processed"][key] = entry
         if status in self.data["stats"]:
             self.data["stats"][status] += 1
         self._save()
-        log.info(f"Logged: {key} → {status}")
+        detail = f" ({reason})" if reason else ""
+        log.info(f"Logged: {key} → {status}{detail}")
 
     def print_stats(self):
         stats = self.data["stats"]
