@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
+from telethon.errors import AuthKeyDuplicatedError
 from telethon.sessions import StringSession
 load_dotenv()
 
@@ -40,11 +41,19 @@ class TelegramReader:
 
     async def connect(self):
         """Connect and authenticate with Telegram"""
-        if IS_CI:
-            # In CI — StringSession from TELEGRAM_SESSION secret, no phone prompt
-            await self.client.connect()
-        else:
-            await self.client.start(phone=self.phone)
+        try:
+            if IS_CI:
+                # In CI — StringSession from TELEGRAM_SESSION secret, no phone prompt
+                await self.client.connect()
+            else:
+                await self.client.start(phone=self.phone)
+        except AuthKeyDuplicatedError:
+            log.error(
+                "Telegram session invalidated: same session used from two IPs at once. "
+                "Run 'python get_session.py' locally (with CI not running), "
+                "update TELEGRAM_SESSION in GitHub Secrets, and do not set CI=true locally."
+            )
+            raise
 
         me = await self.client.get_me()
         log.info(f"Logged in as: {me.first_name} (@{me.username})")

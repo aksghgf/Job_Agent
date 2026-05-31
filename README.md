@@ -184,6 +184,12 @@ job-agent/
 - Delete `job_agent_session.session` and re-run `python main.py`
 - For CI, re-run `python get_session.py` and update `TELEGRAM_SESSION`
 
+**CI: `AuthKeyDuplicatedError`**
+
+- Telegram killed the session because the **same `TELEGRAM_SESSION` was used from two places at once** (e.g. GitHub Actions + your PC with `CI=true` in `.env`)
+- Fix: run `python get_session.py` locally (pause CI first), paste the new string into GitHub Secrets → `TELEGRAM_SESSION`
+- Keep local runs on `job_agent_session.session` only — do **not** set `CI=true` in your local `.env`
+
 **CI: `base64: invalid input`**
 
 - Your `TELEGRAM_SESSION` secret must be the **string session** from `get_session.py`, not a base64-encoded file
