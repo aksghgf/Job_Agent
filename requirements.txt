@@ -1,0 +1,5 @@
+telethon
+playwright
+httpx
+python-dotenv
+pypdf

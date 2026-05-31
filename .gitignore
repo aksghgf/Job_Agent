@@ -1,0 +1,6 @@
+.env
+*.session
+applications_log.json
+__pycache__/
+*.pyc
+resume.pdf

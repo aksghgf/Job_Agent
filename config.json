@@ -1,0 +1,59 @@
+{
+  "telegram": {
+    "group_usernames": [
+        -1002791111581,
+        -1003808633277,
+        -1001511282053,
+        -1001918258764
+
+    ]
+  },
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "model": "llama3.1:8b",
+    "vision_model": "llama3.1:8b"
+  },
+  
+  "groq": {
+    "model": "llama-3.1-8b-instant",
+    "base_url": "https://api.groq.com/openai/v1"
+  },
+
+  "brevo": {
+    "api_key": "",
+    "from_email": "ui22ec01@iiitsurat.ac.in",
+    "from_name": "Abhishek Tiwari"
+  },
+
+  "filter_profile": {
+    "batch": "2026",
+    "experience": "1 year",
+    "target_roles": [
+        "Software Engineer",
+        "Software Developer", 
+        "Backend Developer",
+        "Full Stack Developer",
+        "Frontend Developer",
+        "SDE",
+        "Intern",
+        "Fresher"
+    ],
+    "skills": [
+        "Python",
+        "React",
+        "Node.js",
+        "JavaScript"
+    ],
+    "locations": [
+        "Remote",
+        "Bangalore",
+        "Hyderabad",
+        "Pune",
+        "Mumbai",
+        "Delhi",
+        "Noida",
+        "Gurgaon"
+    ]
+  }
+
+}
