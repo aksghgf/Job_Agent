@@ -44,6 +44,7 @@ jobs:
       - name: Run agent
         env:
           RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
+          RESUME_PDF_B64: ${{ secrets.RESUME_PDF_B64 }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         run: python main.py
 

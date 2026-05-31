@@ -103,6 +103,7 @@ The workflow in `.github/workflows/job_agent.yml` runs every **15 minutes** and 
 | `GROQ_API_KEY` | Groq API key |
 | `BREVO_API_KEY` | Brevo API key |
 | `RESUME_TEXT` | Full plain-text resume (paste from PDF) |
+| `RESUME_PDF_B64` | Optional — base64 of your resume PDF for email attachments (see below) |
 
 ### Generate `TELEGRAM_SESSION`
 
@@ -117,6 +118,20 @@ Copy the full one-line string it prints into the **`TELEGRAM_SESSION`** GitHub s
 > Use the **string session** output — not base64 of the `.session` file.
 
 If the session expires or you change your Telegram password, regenerate it and update the secret.
+
+### Attach resume PDF to recruiter emails (CI)
+
+Recruiter emails include your resume as a PDF attachment when available.
+
+**Locally:** place `resume.pdf` in the project root.
+
+**In CI:** add a GitHub secret `RESUME_PDF_B64` with the base64 of your PDF:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("resume.pdf")) | Set-Clipboard
+```
+
+Paste the output into **Settings → Secrets → `RESUME_PDF_B64`**.
 
 ### CI artifacts
 

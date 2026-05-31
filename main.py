@@ -154,7 +154,7 @@ async def main():
     # ── Init all components ──────────────────────────────────────
     classifier = LinkClassifier(config["groq"])
     filler     = FormFiller(resume_text, config["groq"])
-    emailer    = EmailSender(config["brevo"], resume_text, config["groq"])
+    emailer    = EmailSender(config["brevo"], resume_text, config["groq"], config.get("applicant", {}))
     reader     = TelegramReader(config["telegram"])
     job_filter = JobFilter(config["filter_profile"], config["groq"])
 
