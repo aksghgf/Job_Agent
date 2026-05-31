@@ -127,9 +127,9 @@ async def main():
     """)
 
     if IS_CI:
-        print("⚡ Mode: GitHub Actions (scanning last 1 hour)")
+        print("⚡ Mode: GitHub Actions (scanning unread messages)")
     else:
-        print("🖥️  Mode: Local (live monitoring)")
+        print("🖥️  Mode: Local (unread catch-up, then live monitoring)")
 
     # ── Load resume ONCE at startup ──────────────────────────────
     print("📄 Loading resume...")
@@ -155,8 +155,8 @@ async def main():
 
     # ── Choose mode ──────────────────────────────────────────────
     if IS_CI:
-        # GitHub Actions — scan last 1 hour and exit
-        async for message in reader.listen_groups_once(hours_back=1):
+        # GitHub Actions — scan all unread messages and exit
+        async for message in reader.listen_groups_unread():
             await process_message(
                 message, classifier, job_filter,
                 filler, emailer, logger, reader

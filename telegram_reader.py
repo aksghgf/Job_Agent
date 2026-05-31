@@ -74,35 +74,67 @@ class TelegramReader:
         except Exception as e:
             log.warning(f"Notification failed: {e}")
 
+    async def listen_groups_unread(self):
+        """
+        Scan all unread messages in configured groups, oldest first.
+        Marks each group as read after processing so the next run skips them.
+        """
+        group_set = set(self.groups)
+        dialogs = {
+            dialog.id: dialog
+            async for dialog in self.client.iter_dialogs()
+            if dialog.id in group_set
+        }
+
+        for group_id in self.groups:
+            dialog = dialogs.get(group_id)
+            if not dialog:
+                log.warning(f"Group {group_id} not found in your dialogs — skipped")
+                continue
+
+            unread = dialog.unread_count
+            if not unread:
+                log.info(f"No unread messages in: {dialog.name}")
+                continue
+
+            log.info(f"Scanning {unread} unread message(s) in: {dialog.name}")
+            max_id = 0
+            messages = []
+
+            try:
+                async for msg in self.client.iter_messages(dialog.entity, limit=unread):
+                    max_id = max(max_id, msg.id)
+                    messages.append(msg)
+            except Exception as e:
+                log.warning(f"Could not read group '{dialog.name}': {e}")
+                continue
+
+            # Process oldest unread first
+            for msg in reversed(messages):
+                if not msg.text:
+                    continue
+                yield {
+                    "chat": group_id,
+                    "text": msg.text,
+                    "message_id": msg.id,
+                    "date": str(msg.date)
+                }
+
+            if max_id:
+                await self.client.send_read_acknowledge(dialog.entity, max_id=max_id)
+                log.info(f"Marked {len(messages)} message(s) as read in: {dialog.name}")
+
     async def listen_groups(self):
         """
         Local mode:
-        Phase 1 — today's messages (catch-up)
+        Phase 1 — unread messages (catch-up)
         Phase 2 — live new messages
         """
-        today = datetime.now(timezone.utc).date()
-
-        # ── Phase 1: today's messages only ──────────────────────
-        for group in self.groups:
-            try:
-                log.info(f"Scanning today's messages in: {group}")
-                async for msg in self.client.iter_messages(group, limit=200):
-                    if not msg.text:
-                        continue
-                    msg_date = msg.date.replace(tzinfo=timezone.utc)
-                    if msg_date.date() < today:
-                        break
-                    yield {
-                        "chat": group,
-                        "text": msg.text,
-                        "message_id": msg.id,
-                        "date": str(msg.date)
-                    }
-            except Exception as e:
-                log.warning(f"Could not read group '{group}': {e}")
+        async for message in self.listen_groups_unread():
+            yield message
 
         # ── Phase 2: live new messages ───────────────────────────
-        log.info("✅ Catch-up done. Listening for new messages live...")
+        log.info("✅ Unread catch-up done. Listening for new messages live...")
 
         while True:
             try:
