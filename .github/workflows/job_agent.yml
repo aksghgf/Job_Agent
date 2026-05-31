@@ -31,10 +31,10 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-
       - name: Restore Telegram session
         run: |
           echo "${{ secrets.TELEGRAM_SESSION }}" | base64 -d > job_agent_session.session
+          ls -la job_agent_session.session
 
       - name: Create .env
         run: |
@@ -44,10 +44,11 @@ jobs:
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "BREVO_API_KEY=${{ secrets.BREVO_API_KEY }}" >> .env
           echo "RESUME_PATH=resume.pdf" >> .env
-          echo "RESUME_TEXT=${{ secrets.RESUME_TEXT }}" >> .env
           echo "CI=true" >> .env
 
       - name: Run agent
+        env:
+          RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
         run: python main.py
 
       - name: Save applications log
