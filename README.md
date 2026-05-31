@@ -1,119 +1,151 @@
-# 🤖 Job Application Agent — Setup Guide
-## 100% Free | Powered by Ollama (Local AI)
+# Job Application Agent
 
----
+Monitors Telegram job groups, filters posts with AI, and auto-applies to relevant openings.
 
-## Step 1 — Install Ollama (Local AI)
-
-```bash
-# Linux / Mac
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Windows: download from https://ollama.ai/download
-```
-
-Then pull the models (do this once):
-```bash
-ollama pull llama3.1       # Main AI brain (~4.7GB)
-ollama pull llava          # Vision AI for screenshots (~4.7GB)
-ollama serve               # Start Ollama (keep running)
-```
-
-> With your 32GB RAM, llama3.1:70b works too (better quality):
-> `ollama pull llama3.1:70b`
-> Then set `"model": "llama3.1:70b"` in config.json
-
----
-
-## Step 2 — Get Telegram API Credentials
-
-1. Go to **https://my.telegram.org/apps**
-2. Log in with your phone number
-3. Create a new app → copy **API ID** and **API Hash**
-4. Paste into `config.json` under `telegram`
-
----
-
-## Step 3 — Get Brevo API Key (Free Email)
-
-1. Sign up at **https://app.brevo.com** (free)
-2. Go to **Settings → API Keys → Generate**
-3. Paste into `config.json` under `brevo.api_key`
-
----
-
-## Step 4 — Fill Your Profile
-
-Edit `config.json` → `profile` section:
-- Add your name, email, phone, LinkedIn etc.
-- Paste your resume text in `resume_text`
-- Set your `target_role`
-- Add your Telegram group usernames to monitor
-
-**How to find group username:**
-Right-click any Telegram group → Copy link → the part after `t.me/` is the username
-
----
-
-## Step 5 — Install Python Dependencies
-
-```bash
-pip install -r requirements.txt
-playwright install chromium
-```
-
----
-
-## Step 6 — Run the Agent
-
-```bash
-# Make sure Ollama is running first!
-ollama serve
-
-# In another terminal:
-python main.py
-```
-
-First run will ask you to verify your phone number (one time only).
+**AI:** [Groq](https://groq.com) (free tier) · **Forms:** Playwright · **Email:** Brevo · **CI:** GitHub Actions (every 15 min)
 
 ---
 
 ## What It Does
 
 ```
-Telegram groups monitored
+Telegram groups (configured in config.json)
         ↓
-  New job post detected
+  Unread messages scanned (CI) or live + unread catch-up (local)
         ↓
-  AI extracts links/emails
+  AI classifies links / recruiter emails
+        ↓
+  Job filter checks role, batch, experience, skills, location
         ↓
   ┌─────────────────────┐
-  │  Job Link found?    │──→ Opens browser → Detects form type
-  │                     │    → Fills fields with your profile
-  │                     │    → Submits automatically
+  │  Job link found?    │──→ Playwright opens page → fills form → submits
   └─────────────────────┘
         ↓
   ┌─────────────────────┐
-  │ Recruiter email?    │──→ Drafts personalized email
-  │                     │    → Sends via Brevo
+  │ Recruiter email?    │──→ Personalized email via Brevo
   └─────────────────────┘
         ↓
-  Logged in applications_log.json
+  Logged in applications_log.json + Telegram notification
 ```
+
+**CI mode** scans all **unread** messages in your configured groups, processes them, then marks them as read.
+
+**Local mode** processes unread messages first, then listens for new posts live.
+
+---
+
+## Quick Start (Local)
+
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 2. Create a `.env` file
+
+```env
+TELEGRAM_API_ID=your_api_id
+TELEGRAM_API_HASH=your_api_hash
+TELEGRAM_PHONE=+91xxxxxxxxxx
+GROQ_API_KEY=your_groq_key
+BREVO_API_KEY=your_brevo_key
+RESUME_PATH=resume.pdf
+```
+
+Get Telegram credentials at [my.telegram.org/apps](https://my.telegram.org/apps).  
+Get a free Groq key at [console.groq.com](https://console.groq.com).
+
+### 3. Configure groups and filters
+
+Edit `config.json`:
+
+- **`telegram.group_usernames`** — numeric chat IDs (see below)
+- **`filter_profile`** — batch, experience, target roles, skills, locations
+- **`groq`** — model name (default: `llama-3.1-8b-instant`)
+- **`brevo`** — sender name and verified `from_email`
+
+**Find group IDs:**
+
+```bash
+python get_chat_ids.py
+```
+
+Copy the `ID` values into `config.json`.
+
+### 4. Add your resume
+
+Place `resume.pdf` in the project root (or set `RESUME_PATH` in `.env`).
+
+### 5. Run
+
+```bash
+python main.py
+```
+
+First run prompts for a Telegram login code (one time). A `job_agent_session.session` file is created locally.
+
+---
+
+## GitHub Actions (Automated CI)
+
+The workflow in `.github/workflows/job_agent.yml` runs every **15 minutes** and can be triggered manually from the Actions tab.
+
+### Required GitHub Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `TELEGRAM_API_ID` | From [my.telegram.org/apps](https://my.telegram.org/apps) |
+| `TELEGRAM_API_HASH` | From [my.telegram.org/apps](https://my.telegram.org/apps) |
+| `TELEGRAM_PHONE` | Your phone number with country code |
+| `TELEGRAM_SESSION` | Telethon string session (see below) |
+| `GROQ_API_KEY` | Groq API key |
+| `BREVO_API_KEY` | Brevo API key |
+| `RESUME_TEXT` | Full plain-text resume (paste from PDF) |
+
+### Generate `TELEGRAM_SESSION`
+
+Run locally once (with `.env` configured):
+
+```bash
+python get_session.py
+```
+
+Copy the full one-line string it prints into the **`TELEGRAM_SESSION`** GitHub secret.
+
+> Use the **string session** output — not base64 of the `.session` file.
+
+If the session expires or you change your Telegram password, regenerate it and update the secret.
+
+### CI artifacts
+
+After each run, download **`applications-log`** from the Actions artifact to see what was applied, skipped, or failed.
+
+---
+
+## Helper Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `get_chat_ids.py` | List Telegram chats and their numeric IDs |
+| `get_session.py` | Generate a string session for GitHub Actions |
+| `main.py` | Run the agent (local or CI) |
 
 ---
 
 ## Supported Form Types
 
 | Form Type | Support Level |
-|-----------|--------------|
-| Google Forms (multi-step) | ✅ Full |
-| Workday | ✅ Good |
-| Greenhouse | ✅ Good |
-| Lever | ✅ Good |
-| Generic HTML forms | ✅ AI-guided |
-| LinkedIn Easy Apply | ⚠️ Partial (needs login) |
-| Forms with CAPTCHA | ❌ Manual needed |
+|-----------|---------------|
+| Google Forms (multi-step) | Full |
+| Oracle HCM / Workday-style | Good |
+| Greenhouse | Good |
+| Lever | Good |
+| Generic HTML forms | AI-guided |
+| Multi-step iCIMS / Amazon | Partial (may hit step limit) |
+| LinkedIn Easy Apply | Partial (needs login) |
+| Forms with CAPTCHA | Manual needed |
 
 ---
 
@@ -121,32 +153,57 @@ Telegram groups monitored
 
 ```
 job-agent/
-├── main.py              # Start here
-├── telegram_reader.py   # Reads Telegram groups
-├── link_classifier.py   # AI extracts links/emails
-├── form_filler.py       # Playwright fills forms
-├── email_sender.py      # Brevo sends emails
-├── logger.py            # Tracks applications
-├── config.json          # YOUR SETTINGS (edit this!)
-├── requirements.txt     # Python packages
-└── applications_log.json  # Auto-created, tracks what's done
+├── main.py              # Orchestrator — start here
+├── telegram_reader.py   # Telegram unread scan + live listener
+├── link_classifier.py   # AI extracts links and emails
+├── job_filter.py        # AI filters jobs by your profile
+├── form_filler.py       # Playwright form automation
+├── email_sender.py      # Brevo email sender
+├── resume_parser.py     # Loads resume.pdf or RESUME_TEXT
+├── logger.py            # Duplicate tracking + stats
+├── groq_client.py       # Groq API wrapper
+├── get_chat_ids.py      # List Telegram group IDs
+├── get_session.py       # Generate CI session string
+├── config.json          # Groups, filter profile, AI settings
+├── requirements.txt     # Python dependencies
+├── .env                 # Secrets (local only — not committed)
+└── applications_log.json  # Auto-created application history
 ```
 
 ---
 
 ## Troubleshooting
 
-**Ollama not responding:**
-```bash
-ollama serve   # make sure this is running
-```
+**Groq API not reachable**
 
-**Telegram login issues:**
-- Delete `job_agent_session.session` and re-run
+- Check `GROQ_API_KEY` in `.env` or GitHub Secrets
+- Confirm your Groq account has quota remaining
 
-**Form not filling:**
-- Check `applications_log.json` for errors
-- Some sites block automation — nothing we can do
+**Telegram login issues (local)**
 
-**Brevo email failing:**
-- Make sure sender email is verified in Brevo dashboard
+- Delete `job_agent_session.session` and re-run `python main.py`
+- For CI, re-run `python get_session.py` and update `TELEGRAM_SESSION`
+
+**CI: `base64: invalid input`**
+
+- Your `TELEGRAM_SESSION` secret must be the **string session** from `get_session.py`, not a base64-encoded file
+
+**No jobs applied in CI**
+
+- Unread scan only processes messages still marked unread in Telegram
+- Jobs can be skipped by the filter (wrong role, batch, or experience)
+- Check the Actions log and `applications_log.json` artifact for details
+
+**Form not filling**
+
+- Some ATS sites use multi-step flows or block automation
+- Check `applications_log.json` for `failed` entries and apply manually
+
+**Brevo email failing**
+
+- Verify the sender email in the Brevo dashboard
+- Set `BREVO_API_KEY` in `.env` or GitHub Secrets
+
+**Messages marked read unexpectedly**
+
+- CI marks groups as read after scanning so the same posts are not reprocessed every run
