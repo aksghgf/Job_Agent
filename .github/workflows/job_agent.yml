@@ -1,6 +1,10 @@
 name: Job Application Agent
 
 on:
+  push:
+    branches:
+      - feature/logs
+      
   schedule:
     - cron: '*/15 * * * *'   # every 15 minutes
   workflow_dispatch:           # manual trigger button too
