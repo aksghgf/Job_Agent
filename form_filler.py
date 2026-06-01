@@ -21,6 +21,21 @@ ATS_PATTERNS = {
     "breezy":       "breezy.hr",
 }
 
+# Buttons that match text but are NOT job apply actions
+BAD_BUTTON_IDS = frozenset({
+    "filter-apply-handler",
+    "filter-apply",
+    "apply-filter",
+})
+BAD_ARIA_KEYWORDS = (
+    "filter", "subscribe", "notify", "similar job", "page content",
+    "swiper", "newsletter", "cookie", "search",
+)
+BAD_CLASS_KEYWORDS = (
+    "visibility--hidden", "visually-hidden", "sr-only", "screen-reader",
+    "hidden--visually", "swiper-next", "swiper-prev",
+)
+
 
 class FormFiller:
     def __init__(self, resume_text: str, groq_config: dict):
@@ -234,9 +249,7 @@ Keep it under 250 words. Professional but warm tone. No generic filler phrases."
 
     async def _fill_workday(self, page: Page) -> bool:
         log.info("Filling Workday...")
-        apply_btn = page.locator('button:has-text("Apply"), a:has-text("Apply Now")')
-        if await apply_btn.count() > 0:
-            await apply_btn.first.click()
+        if await self._click_best_button(page, ["Apply Now", "Apply"], prefer_apply=True):
             await page.wait_for_timeout(2000)
         return await self._fill_ai_guided(page, max_steps=25)
 
@@ -249,26 +262,48 @@ Keep it under 250 words. Professional but warm tone. No generic filler phrases."
 
     # ─── AI-Guided Universal Filler ───────────────────────────────────────────
 
-    async def _fill_ai_guided(self, page: Page, max_steps: int = 15) -> bool:
+    async def _fill_ai_guided(self, page: Page, max_steps: int = 20) -> bool:
+        last_url = ""
+        repeat_clicks = 0
+        last_click_target = ""
+
         for step in range(max_steps):
             await page.wait_for_timeout(1500)
             await self._fill_visible_fields(page)
+
+            current_url = page.url
+            if current_url == last_url:
+                repeat_clicks += 1
+            else:
+                repeat_clicks = 0
+                last_url = current_url
 
             action = await self._next_action(page, step)
             log.info(f"Step {step+1}: {action['action']} → {action.get('target', '')}")
 
             if action["action"] == "submit":
-                btn = page.locator(f'button:has-text("{action.get("target", "Submit")}")')
-                if await btn.count() > 0:
-                    await btn.first.click()
+                target = action.get("target", "Submit")
+                if await self._click_best_button(page, [target], prefer_apply=True):
                     await page.wait_for_timeout(2000)
-                    return True
+                    if await self._page_shows_success(page):
+                        return True
+                else:
+                    self.last_error = f"No clickable apply/submit button for '{target}'"
+                    return False
 
             elif action["action"] == "click":
                 target = action.get("target", "Next")
-                btn = page.locator(f'button:has-text("{target}"), a:has-text("{target}")')
-                if await btn.count() > 0:
-                    await btn.first.click()
+                if target == last_click_target and repeat_clicks >= 3:
+                    self.last_error = (
+                        f"Stuck clicking '{target}' — page may need login, CAPTCHA, "
+                        "or a different apply flow"
+                    )
+                    return False
+                last_click_target = target
+
+                if not await self._click_best_button(page, [target], prefer_apply=False):
+                    self.last_error = f"No visible navigation button for '{target}'"
+                    return False
 
             elif action["action"] == "fill":
                 selector = action.get("selector", "")
@@ -286,6 +321,115 @@ Keep it under 250 words. Professional but warm tone. No generic filler phrases."
                 return action["action"] == "done"
 
         self.last_error = f"Hit {max_steps}-step limit without submit confirmation"
+        return False
+
+    async def _page_shows_success(self, page: Page) -> bool:
+        content = (await page.content()).lower()
+        return any(kw in content for kw in (
+            "thank you", "application submitted", "successfully applied",
+            "application received", "we have received your application",
+        ))
+
+    async def _click_best_button(self, page: Page, labels: list[str], prefer_apply: bool) -> bool:
+        """Pick the best visible button/link — avoids filter bars, carousels, subscribe."""
+        candidates: list[tuple[int, object]] = []
+
+        for label in labels:
+            for selector in (
+                f'button:has-text("{label}")',
+                f'a:has-text("{label}")',
+                f'[role="button"]:has-text("{label}")',
+                f'input[type="submit"][value="{label}"]',
+            ):
+                loc = page.locator(selector)
+                count = await loc.count()
+                for i in range(min(count, 12)):
+                    el = loc.nth(i)
+                    score = await self._score_button(el, label, prefer_apply)
+                    if score > 0:
+                        candidates.append((score, el))
+
+        if not candidates:
+            return False
+
+        candidates.sort(key=lambda x: -x[0])
+        try:
+            await candidates[0][1].click(timeout=15000)
+            return True
+        except Exception as e:
+            self.last_error = str(e)[:500]
+            return False
+
+    async def _score_button(self, el, label: str, prefer_apply: bool) -> int:
+        meta = await el.evaluate("""(node) => {
+            const r = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            const id = (node.id || '').toLowerCase();
+            const cls = (node.className || '').toString().toLowerCase();
+            const aria = (node.getAttribute('aria-label') || '').toLowerCase();
+            const text = (node.innerText || node.value || '').trim().toLowerCase();
+            const href = (node.href || '').toLowerCase();
+            const visible = r.width > 2 && r.height > 2
+                && style.visibility !== 'hidden'
+                && style.display !== 'none'
+                && parseFloat(style.opacity || '1') > 0.1;
+            const inViewport = r.top >= 0 && r.left >= 0
+                && r.bottom <= (window.innerHeight + 80)
+                && r.right <= (window.innerWidth + 80);
+            return { id, cls, aria, text, href, visible, inViewport, w: r.width, h: r.height };
+        }""")
+
+        if not meta["visible"]:
+            return 0
+
+        score = 10
+        if meta["inViewport"]:
+            score += 15
+
+        text = meta["text"]
+        label_l = label.lower()
+        if text == label_l:
+            score += 12
+        elif label_l in text:
+            score += 6
+
+        if prefer_apply:
+            if any(t in text for t in ("apply now", "apply for", "submit application")):
+                score += 20
+            elif text in ("apply", "submit"):
+                score += 8
+            # Deprioritize bare "Submit" when it's likely newsletter
+            if text == "submit" and any(k in meta["aria"] for k in ("notify", "subscribe", "similar")):
+                score -= 40
+
+        if meta["id"] in BAD_BUTTON_IDS:
+            return 0
+
+        for kw in BAD_ARIA_KEYWORDS:
+            if kw in meta["aria"] or kw in meta["id"]:
+                score -= 35
+
+        for kw in BAD_CLASS_KEYWORDS:
+            if kw in meta["cls"]:
+                score -= 35
+
+        if "apply" in meta["href"] or "/job" in meta["href"]:
+            score += 10
+
+        if meta["w"] < 40 or meta["h"] < 20:
+            score -= 15
+
+        return score
+
+    async def _has_good_button(self, page: Page, labels: list[str], prefer_apply: bool) -> bool:
+        for label in labels:
+            loc = page.locator(
+                f'button:has-text("{label}"), a:has-text("{label}"), [role="button"]:has-text("{label}")'
+            )
+            count = await loc.count()
+            for i in range(min(count, 8)):
+                if await self._score_button(loc.nth(i), label, prefer_apply) > 5:
+                    return True
         return False
 
     async def _fill_visible_fields(self, page: Page):
@@ -329,23 +473,21 @@ Keep it under 250 words. Professional but warm tone. No generic filler phrases."
                 pass
 
     async def _next_action(self, page: Page, step: int) -> dict:
-        """Text-based next action — no vision model needed"""
-        # Check for submit button
-        for submit_text in ["Submit Application", "Submit", "Apply", "Apply Now"]:
-            btn = page.locator(f'button:has-text("{submit_text}")')
-            if await btn.count() > 0:
+        """Choose next action using scored visible buttons only."""
+        if await self._page_shows_success(page):
+            return {"action": "done", "target": ""}
+
+        # Prefer specific apply labels before generic "Apply" / "Submit"
+        for submit_text in (
+            "Submit Application", "Apply Now", "Apply for this job",
+            "Apply for Job", "Apply", "Submit",
+        ):
+            if await self._has_good_button(page, [submit_text], prefer_apply=True):
                 return {"action": "submit", "target": submit_text}
 
-        # Check for next button
-        for next_text in ["Next", "Continue", "Save and Continue", "Next Step"]:
-            btn = page.locator(f'button:has-text("{next_text}")')
-            if await btn.count() > 0:
+        for next_text in ("Save and Continue", "Next Step", "Next", "Continue"):
+            if await self._has_good_button(page, [next_text], prefer_apply=False):
                 return {"action": "click", "target": next_text}
-
-        # Check for success/confirmation
-        content = await page.content()
-        if any(kw in content.lower() for kw in ["thank you", "application submitted", "successfully applied"]):
-            return {"action": "done", "target": ""}
 
         return {"action": "click", "target": "Next", "reason": "fallback"}
 
